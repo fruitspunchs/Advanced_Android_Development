@@ -16,11 +16,11 @@
 
 package com.example.android.sunshine.app;
 
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.preference.PreferenceManager;
 import android.util.Log;
 
-import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.wearable.DataEvent;
 import com.google.android.gms.wearable.DataEventBuffer;
@@ -30,8 +30,6 @@ import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
 
-import java.util.concurrent.TimeUnit;
-
 /**
  * Listens to DataItems and Messages from the local node.
  */
@@ -39,6 +37,7 @@ public class DataLayerListenerService extends WearableListenerService {
     private static final String WEATHER_CONDITION_KEY = "WEATHER_CONDITION_KEY";
     private static final String MIN_TEMP_KEY = "MIN_TEMP_KEY";
     private static final String MAX_TEMP_KEY = "MAX_TEMP_KEY";
+
     GoogleApiClient mGoogleApiClient;
 
     @Override
@@ -62,32 +61,31 @@ public class DataLayerListenerService extends WearableListenerService {
                 .putInt(MAX_TEMP_KEY, high)
                 .putInt(MIN_TEMP_KEY, low)
                 .apply();
+
+
+        Intent intent = new Intent(this, MyWatchFace.class);
+        intent.setAction(MyWatchFace.ACTION_UPDATE);
+        this.startService(intent);
     }
+
 
     @Override
     public void onDataChanged(DataEventBuffer dataEvents) {
-
         String LOG_TAG = this.getClass().getSimpleName();
-
         Log.d(LOG_TAG, "onDataChanged: " + dataEvents);
-        if (!mGoogleApiClient.isConnected() || !mGoogleApiClient.isConnecting()) {
-            ConnectionResult connectionResult = mGoogleApiClient
-                    .blockingConnect(30, TimeUnit.SECONDS);
-            if (!connectionResult.isSuccess()) {
-                Log.e(LOG_TAG, "DataLayerListenerService failed to connect to GoogleApiClient, "
-                        + "error code: " + connectionResult.getErrorCode());
-                return;
-            }
-        }
 
-        // Loop through the events and send a message back to the node that created the data item.
+        // Loop through the events and send a message back to the node that created the data item
         for (DataEvent event : dataEvents) {
-            DataItem item = event.getDataItem();
-            if (item.getUri().getPath().compareTo("/weather") == 0) {
-                Log.d(LOG_TAG, "Weather data received");
-                DataMap dataMap = DataMapItem.fromDataItem(item).getDataMap();
-                saveDataMap(dataMap);
+            if (event.getType() == DataEvent.TYPE_CHANGED) {
+                DataItem item = event.getDataItem();
+                if (item.getUri().getPath().compareTo("/weather") == 0) {
+                    Log.d(LOG_TAG, "Weather data received");
+                    DataMap dataMap = DataMapItem.fromDataItem(item).getDataMap();
+                    saveDataMap(dataMap);
+
+                }
             }
         }
     }
 }
+

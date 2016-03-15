@@ -47,15 +47,14 @@ import java.util.concurrent.TimeUnit;
  * low-bit ambient mode, the text is drawn without anti-aliasing in ambient mode.
  */
 public class MyWatchFace extends CanvasWatchFaceService {
+    public static final String ACTION_UPDATE = "ACTION_UPDATE";
     private static final Typeface NORMAL_TYPEFACE =
             Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
-
     /**
      * Update rate in milliseconds for interactive mode. We update once a second since seconds are
      * displayed in interactive mode.
      */
     private static final long INTERACTIVE_UPDATE_RATE_MS = TimeUnit.SECONDS.toMillis(1);
-
     /**
      * Handler message id for updating the time periodically in interactive mode.
      */
@@ -66,6 +65,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
     Drawable mDrawable;
     String mHighString = "";
     String mLowString = "";
+    SharedPreferences mSharedPreferences;
 
     private int getArtResourceForWeatherCondition(int weatherId) {
         // Based on weather code data found at:
@@ -94,6 +94,23 @@ public class MyWatchFace extends CanvasWatchFaceService {
             return R.drawable.art_clouds;
         }
         return -1;
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        String action = intent.getAction();
+
+        if (ACTION_UPDATE.equals(action)) {
+            mSharedPreferences = PreferenceManager.getDefaultSharedPreferences(MyWatchFace.this);
+            int high = mSharedPreferences.getInt(MAX_TEMP_KEY, 0);
+            mHighString = formatTemperature(MyWatchFace.this, high);
+            int low = mSharedPreferences.getInt(MIN_TEMP_KEY, 0);
+            mLowString = formatTemperature(MyWatchFace.this, low);
+            int weatherId = mSharedPreferences.getInt(WEATHER_CONDITION_KEY, 200);
+            mDrawable = MyWatchFace.this.getResources().getDrawable(getArtResourceForWeatherCondition(weatherId));
+        }
+
+        return super.onStartCommand(intent, flags, startId);
     }
 
     @Override
@@ -143,7 +160,6 @@ public class MyWatchFace extends CanvasWatchFaceService {
                 mTime.setToNow();
             }
         };
-        SharedPreferences mSharedPreferences;
 
         float mXOffset;
         float mYOffset;
@@ -184,6 +200,9 @@ public class MyWatchFace extends CanvasWatchFaceService {
             mLowPaint = createTextPaint(resources.getColor(R.color.secondary_text));
 
             mTime = new Time();
+
+            int weatherId = mSharedPreferences.getInt(WEATHER_CONDITION_KEY, 200);
+            mDrawable = MyWatchFace.this.getResources().getDrawable(getArtResourceForWeatherCondition(weatherId));
         }
 
         @Override
@@ -276,6 +295,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
             mLowPaint.setTextSize(temperatureTextSize);
         }
 
+
         @Override
         public void onPropertiesChanged(Bundle properties) {
             super.onPropertiesChanged(properties);
@@ -306,8 +326,6 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
         @Override
         public void onDraw(Canvas canvas, Rect bounds) {
-            int weatherId = mSharedPreferences.getInt(WEATHER_CONDITION_KEY, 200);
-            mDrawable = MyWatchFace.this.getResources().getDrawable(getArtResourceForWeatherCondition(weatherId));
             int high = mSharedPreferences.getInt(MAX_TEMP_KEY, 0);
             mHighString = formatTemperature(MyWatchFace.this, high);
             int low = mSharedPreferences.getInt(MIN_TEMP_KEY, 0);
