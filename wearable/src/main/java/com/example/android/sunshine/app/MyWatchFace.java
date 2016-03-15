@@ -26,6 +26,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -87,7 +88,10 @@ public class MyWatchFace extends CanvasWatchFaceService {
         final Handler mUpdateTimeHandler = new EngineHandler(this);
         boolean mRegisteredTimeZoneReceiver = false;
         Paint mBackgroundPaint;
-        Paint mTextPaint;
+        Paint mTimePaint;
+        Paint mHighPaint;
+        Paint mLowPaint;
+        Drawable mDrawable;
         boolean mAmbient;
         Time mTime;
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
@@ -99,6 +103,11 @@ public class MyWatchFace extends CanvasWatchFaceService {
         };
         float mXOffset;
         float mYOffset;
+        float mHighX;
+        float mHighY;
+        float mLowX;
+        float mLowY;
+        Rect mRect;
 
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
@@ -121,8 +130,17 @@ public class MyWatchFace extends CanvasWatchFaceService {
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(resources.getColor(R.color.background));
 
-            mTextPaint = new Paint();
-            mTextPaint = createTextPaint(resources.getColor(R.color.digital_text));
+            mTimePaint = new Paint();
+            mTimePaint = createTextPaint(resources.getColor(R.color.primary_text));
+
+            mHighPaint = new Paint();
+            mHighPaint = createTextPaint(resources.getColor(R.color.primary_text));
+
+            mLowPaint = new Paint();
+            mLowPaint = createTextPaint(resources.getColor(R.color.secondary_text));
+
+            mDrawable = resources.getDrawable(R.drawable.art_clear);
+
 
             mTime = new Time();
         }
@@ -186,10 +204,34 @@ public class MyWatchFace extends CanvasWatchFaceService {
             boolean isRound = insets.isRound();
             mXOffset = resources.getDimension(isRound
                     ? R.dimen.digital_x_offset_round : R.dimen.digital_x_offset);
-            float textSize = resources.getDimension(isRound
+            float timeTextSize = resources.getDimension(isRound
                     ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
+            float temperatureTextSize = resources.getDimension(isRound
+                    ? R.dimen.temperature_text_size_round : R.dimen.temperature_text_size);
 
-            mTextPaint.setTextSize(textSize);
+            int x = (int) resources.getDimension(isRound ?
+                    R.dimen.drawable_x_offset_round : R.dimen.drawable_x_offset);
+            int y = (int) resources.getDimension(isRound ?
+                    R.dimen.drawable_y_offset_round : R.dimen.drawable_y_offset);
+            int w = (int) resources.getDimension(isRound ?
+                    R.dimen.drawable_size_round : R.dimen.drawable_size) + x;
+            int h = (int) resources.getDimension(isRound ?
+                    R.dimen.drawable_size_round : R.dimen.drawable_size) + y;
+            mRect = new Rect(x, y, w, h);
+
+            mHighX = resources.getDimension(isRound ?
+                    R.dimen.temperature_high_x_round : R.dimen.temperature_high_x);
+            mHighY = resources.getDimension(isRound ?
+                    R.dimen.temperature_high_y_round : R.dimen.temperature_high_y);
+
+            mLowX = resources.getDimension(isRound ?
+                    R.dimen.temperature_low_x_round : R.dimen.temperature_low_x);
+            mLowY = resources.getDimension(isRound ?
+                    R.dimen.temperature_low_y_round : R.dimen.temperature_low_y);
+
+            mTimePaint.setTextSize(timeTextSize);
+            mHighPaint.setTextSize(temperatureTextSize);
+            mLowPaint.setTextSize(temperatureTextSize);
         }
 
         @Override
@@ -210,7 +252,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
             if (mAmbient != inAmbientMode) {
                 mAmbient = inAmbientMode;
                 if (mLowBitAmbient) {
-                    mTextPaint.setAntiAlias(!inAmbientMode);
+                    mTimePaint.setAntiAlias(!inAmbientMode);
                 }
                 invalidate();
             }
@@ -227,6 +269,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
                 canvas.drawColor(Color.BLACK);
             } else {
                 canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
+                mDrawable.setBounds(mRect);
+                mDrawable.draw(canvas);
             }
 
             // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
@@ -234,7 +278,14 @@ public class MyWatchFace extends CanvasWatchFaceService {
             String text = mAmbient
                     ? String.format("%d:%02d", mTime.hour, mTime.minute)
                     : String.format("%d:%02d:%02d", mTime.hour, mTime.minute, mTime.second);
-            canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+            canvas.drawText(text, mXOffset, mYOffset, mTimePaint);
+            canvas.drawText("25°", mHighX, mHighY, mHighPaint);
+
+            if (isInAmbientMode()) {
+                canvas.drawText("16°", mLowX, mLowY, mHighPaint);
+            } else {
+                canvas.drawText("16°", mLowX, mLowY, mLowPaint);
+            }
         }
 
         /**
