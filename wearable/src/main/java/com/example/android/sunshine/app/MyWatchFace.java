@@ -20,6 +20,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -30,6 +31,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.preference.PreferenceManager;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
 import android.text.format.Time;
@@ -58,10 +60,51 @@ public class MyWatchFace extends CanvasWatchFaceService {
      * Handler message id for updating the time periodically in interactive mode.
      */
     private static final int MSG_UPDATE_TIME = 0;
+    private static final String WEATHER_CONDITION_KEY = "WEATHER_CONDITION_KEY";
+    private static final String MIN_TEMP_KEY = "MIN_TEMP_KEY";
+    private static final String MAX_TEMP_KEY = "MAX_TEMP_KEY";
+    Drawable mDrawable;
+    String mHighString = "";
+    String mLowString = "";
+
+    private int getArtResourceForWeatherCondition(int weatherId) {
+        // Based on weather code data found at:
+        // http://bugs.openweathermap.org/projects/api/wiki/Weather_Condition_Codes
+        if (weatherId >= 200 && weatherId <= 232) {
+            return R.drawable.art_storm;
+        } else if (weatherId >= 300 && weatherId <= 321) {
+            return R.drawable.art_light_rain;
+        } else if (weatherId >= 500 && weatherId <= 504) {
+            return R.drawable.art_rain;
+        } else if (weatherId == 511) {
+            return R.drawable.art_snow;
+        } else if (weatherId >= 520 && weatherId <= 531) {
+            return R.drawable.art_rain;
+        } else if (weatherId >= 600 && weatherId <= 622) {
+            return R.drawable.art_snow;
+        } else if (weatherId >= 701 && weatherId <= 761) {
+            return R.drawable.art_fog;
+        } else if (weatherId == 761 || weatherId == 781) {
+            return R.drawable.art_storm;
+        } else if (weatherId == 800) {
+            return R.drawable.art_clear;
+        } else if (weatherId == 801) {
+            return R.drawable.art_light_clouds;
+        } else if (weatherId >= 802 && weatherId <= 804) {
+            return R.drawable.art_clouds;
+        }
+        return -1;
+    }
 
     @Override
     public Engine onCreateEngine() {
         return new Engine();
+    }
+
+    private String formatTemperature(Context context, int temperature) {
+        String suffix = "\u00B0";
+        // For presentation, assume the user doesn't care about tenths of a degree.
+        return temperature + suffix;
     }
 
     private static class EngineHandler extends Handler {
@@ -91,7 +134,6 @@ public class MyWatchFace extends CanvasWatchFaceService {
         Paint mTimePaint;
         Paint mHighPaint;
         Paint mLowPaint;
-        Drawable mDrawable;
         boolean mAmbient;
         Time mTime;
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
@@ -101,6 +143,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
                 mTime.setToNow();
             }
         };
+        SharedPreferences mSharedPreferences;
+
         float mXOffset;
         float mYOffset;
         float mHighX;
@@ -118,7 +162,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
         @Override
         public void onCreate(SurfaceHolder holder) {
             super.onCreate(holder);
-
+            mSharedPreferences = PreferenceManager.getDefaultSharedPreferences(MyWatchFace.this);
             setWatchFaceStyle(new WatchFaceStyle.Builder(MyWatchFace.this)
                     .setCardPeekMode(WatchFaceStyle.PEEK_MODE_VARIABLE)
                     .setBackgroundVisibility(WatchFaceStyle.BACKGROUND_VISIBILITY_INTERRUPTIVE)
@@ -138,9 +182,6 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
             mLowPaint = new Paint();
             mLowPaint = createTextPaint(resources.getColor(R.color.secondary_text));
-
-            mDrawable = resources.getDrawable(R.drawable.art_clear);
-
 
             mTime = new Time();
         }
@@ -177,6 +218,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
             // whether we're in ambient mode), so we may need to start or stop the timer.
             updateTimer();
         }
+
 
         private void registerReceiver() {
             if (mRegisteredTimeZoneReceiver) {
@@ -264,14 +306,25 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
         @Override
         public void onDraw(Canvas canvas, Rect bounds) {
+            int weatherId = mSharedPreferences.getInt(WEATHER_CONDITION_KEY, 200);
+            mDrawable = MyWatchFace.this.getResources().getDrawable(getArtResourceForWeatherCondition(weatherId));
+            int high = mSharedPreferences.getInt(MAX_TEMP_KEY, 0);
+            mHighString = formatTemperature(MyWatchFace.this, high);
+            int low = mSharedPreferences.getInt(MIN_TEMP_KEY, 0);
+            mLowString = formatTemperature(MyWatchFace.this, low);
+
             // Draw the background.
             if (isInAmbientMode()) {
                 canvas.drawColor(Color.BLACK);
             } else {
                 canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
-                mDrawable.setBounds(mRect);
-                mDrawable.draw(canvas);
+
+                if (mDrawable != null) {
+                    mDrawable.setBounds(mRect);
+                    mDrawable.draw(canvas);
+                }
             }
+
 
             // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
             mTime.setToNow();
@@ -279,12 +332,12 @@ public class MyWatchFace extends CanvasWatchFaceService {
                     ? String.format("%d:%02d", mTime.hour, mTime.minute)
                     : String.format("%d:%02d:%02d", mTime.hour, mTime.minute, mTime.second);
             canvas.drawText(text, mXOffset, mYOffset, mTimePaint);
-            canvas.drawText("25°", mHighX, mHighY, mHighPaint);
+            canvas.drawText(mHighString, mHighX, mHighY, mHighPaint);
 
             if (isInAmbientMode()) {
-                canvas.drawText("16°", mLowX, mLowY, mHighPaint);
+                canvas.drawText(mLowString, mLowX, mLowY, mHighPaint);
             } else {
-                canvas.drawText("16°", mLowX, mLowY, mLowPaint);
+                canvas.drawText(mLowString, mLowX, mLowY, mLowPaint);
             }
         }
 

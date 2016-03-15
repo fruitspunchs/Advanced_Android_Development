@@ -47,21 +47,33 @@ import android.widget.TextView;
 
 import com.example.android.sunshine.app.data.WeatherContract;
 import com.example.android.sunshine.app.sync.SunshineSyncAdapter;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
 
 /**
  * Encapsulates fetching the forecast and displaying it as a {@link android.support.v7.widget.RecyclerView} layout.
  */
-public class ForecastFragment extends Fragment implements LoaderManager.LoaderCallbacks<Cursor>, SharedPreferences.OnSharedPreferenceChangeListener {
+public class ForecastFragment extends Fragment implements LoaderManager.LoaderCallbacks<Cursor>, SharedPreferences.OnSharedPreferenceChangeListener, DataApi.DataListener,
+        GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener {
     public static final String LOG_TAG = ForecastFragment.class.getSimpleName();
-    private ForecastAdapter mForecastAdapter;
-    private RecyclerView mRecyclerView;
-    private boolean mUseTodayLayout, mAutoSelectView;
-    private int mChoiceMode;
-    private boolean mHoldForTransition;
-    private long mInitialSelectedDate = -1;
-
+    // These indices are tied to FORECAST_COLUMNS.  If FORECAST_COLUMNS changes, these
+    // must change.
+    static final int COL_WEATHER_ID = 0;
+    static final int COL_WEATHER_DATE = 1;
+    static final int COL_WEATHER_DESC = 2;
+    static final int COL_WEATHER_MAX_TEMP = 3;
+    static final int COL_WEATHER_MIN_TEMP = 4;
+    static final int COL_LOCATION_SETTING = 5;
+    static final int COL_WEATHER_CONDITION_ID = 6;
+    static final int COL_COORD_LAT = 7;
+    static final int COL_COORD_LONG = 8;
     private static final String SELECTED_KEY = "selected_position";
-
     private static final int FORECAST_LOADER = 0;
     // For the forecast view we're showing only a small subset of the stored data.
     // Specify the columns we need.
@@ -82,32 +94,59 @@ public class ForecastFragment extends Fragment implements LoaderManager.LoaderCa
             WeatherContract.LocationEntry.COLUMN_COORD_LAT,
             WeatherContract.LocationEntry.COLUMN_COORD_LONG
     };
-
-    // These indices are tied to FORECAST_COLUMNS.  If FORECAST_COLUMNS changes, these
-    // must change.
-    static final int COL_WEATHER_ID = 0;
-    static final int COL_WEATHER_DATE = 1;
-    static final int COL_WEATHER_DESC = 2;
-    static final int COL_WEATHER_MAX_TEMP = 3;
-    static final int COL_WEATHER_MIN_TEMP = 4;
-    static final int COL_LOCATION_SETTING = 5;
-    static final int COL_WEATHER_CONDITION_ID = 6;
-    static final int COL_COORD_LAT = 7;
-    static final int COL_COORD_LONG = 8;
-
-    /**
-     * A callback interface that all activities containing this fragment must
-     * implement. This mechanism allows activities to be notified of item
-     * selections.
-     */
-    public interface Callback {
-        /**
-         * DetailFragmentCallback for when an item has been selected.
-         */
-        public void onItemSelected(Uri dateUri, ForecastAdapter.ForecastAdapterViewHolder vh);
-    }
+    private static final String WEATHER_CONDITION_KEY = "WEATHER_CONDITION_KEY";
+    private static final String MIN_TEMP_KEY = "MIN_TEMP_KEY";
+    private static final String MAX_TEMP_KEY = "MAX_TEMP_KEY";
+    GoogleApiClient mGoogleApiClient;
+    boolean isWatchDataLoaded = false;
+    int mWeatherId;
+    double mHigh;
+    double mLow;
+    private ForecastAdapter mForecastAdapter;
+    private RecyclerView mRecyclerView;
+    private boolean mUseTodayLayout, mAutoSelectView;
+    private int mChoiceMode;
+    private boolean mHoldForTransition;
+    private long mInitialSelectedDate = -1;
 
     public ForecastFragment() {
+    }
+
+    @Override
+    public void onConnected(Bundle bundle) {
+        Log.d(LOG_TAG, "googleApiClientStatus: " + mGoogleApiClient.isConnected());
+        Wearable.DataApi.addListener(mGoogleApiClient, this);
+        updateWatchFace();
+
+    }
+
+    private void updateWatchFace() {
+        if (!isWatchDataLoaded) {
+            return;
+        }
+        PutDataMapRequest putDataMapReq = PutDataMapRequest.create("/weather");
+        putDataMapReq.getDataMap().putInt(WEATHER_CONDITION_KEY, mWeatherId);
+        putDataMapReq.getDataMap().putInt(MAX_TEMP_KEY, (int) Math.round(mHigh));
+        putDataMapReq.getDataMap().putInt(MIN_TEMP_KEY, (int) Math.round(mLow));
+        putDataMapReq.setUrgent();
+        PutDataRequest putDataReq = putDataMapReq.asPutDataRequest();
+        putDataReq.setUrgent();
+        Wearable.DataApi.putDataItem(mGoogleApiClient, putDataReq);
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onDataChanged(DataEventBuffer dataEventBuffer) {
+
+    }
+
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+
     }
 
     @Override
@@ -169,7 +208,6 @@ public class ForecastFragment extends Fragment implements LoaderManager.LoaderCa
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
 
-
         View rootView = inflater.inflate(R.layout.fragment_main, container, false);
 
         // Get a reference to the RecyclerView, and attach this adapter to it.
@@ -219,7 +257,7 @@ public class ForecastFragment extends Fragment implements LoaderManager.LoaderCa
             }
         }
 
-        final AppBarLayout appbarView = (AppBarLayout)rootView.findViewById(R.id.appbar);
+        final AppBarLayout appbarView = (AppBarLayout) rootView.findViewById(R.id.appbar);
         if (null != appbarView) {
             ViewCompat.setElevation(appbarView, 0);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -256,7 +294,13 @@ public class ForecastFragment extends Fragment implements LoaderManager.LoaderCa
         // We hold for transition here just in-case the activity
         // needs to be re-created. In a standard return transition,
         // this doesn't actually make a difference.
-        if ( mHoldForTransition ) {
+        mGoogleApiClient = new GoogleApiClient.Builder(getActivity())
+                .addApi(Wearable.API)
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .build();
+
+        if (mHoldForTransition) {
             getActivity().supportPostponeEnterTransition();
         }
         getLoaderManager().initLoader(FORECAST_LOADER, null, this);
@@ -300,7 +344,6 @@ public class ForecastFragment extends Fragment implements LoaderManager.LoaderCa
         super.onSaveInstanceState(outState);
     }
 
-
     @Override
     public Loader<Cursor> onCreateLoader(int i, Bundle bundle) {
         // This is called when a new Loader needs to be created.  This
@@ -328,7 +371,7 @@ public class ForecastFragment extends Fragment implements LoaderManager.LoaderCa
     public void onLoadFinished(Loader<Cursor> loader, Cursor data) {
         mForecastAdapter.swapCursor(data);
         updateEmptyView();
-        if ( data.getCount() == 0 ) {
+        if (data.getCount() == 0) {
             getActivity().supportStartPostponedEnterTransition();
         } else {
             mRecyclerView.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
@@ -344,9 +387,9 @@ public class ForecastFragment extends Fragment implements LoaderManager.LoaderCa
                             Cursor data = mForecastAdapter.getCursor();
                             int count = data.getCount();
                             int dateColumn = data.getColumnIndex(WeatherContract.WeatherEntry.COLUMN_DATE);
-                            for ( int i = 0; i < count; i++ ) {
+                            for (int i = 0; i < count; i++) {
                                 data.moveToPosition(i);
-                                if ( data.getLong(dateColumn) == mInitialSelectedDate ) {
+                                if (data.getLong(dateColumn) == mInitialSelectedDate) {
                                     position = i;
                                     break;
                                 }
@@ -360,7 +403,7 @@ public class ForecastFragment extends Fragment implements LoaderManager.LoaderCa
                         if (null != vh && mAutoSelectView) {
                             mForecastAdapter.selectView(vh);
                         }
-                        if ( mHoldForTransition ) {
+                        if (mHoldForTransition) {
                             getActivity().supportStartPostponedEnterTransition();
                         }
                         return true;
@@ -368,11 +411,16 @@ public class ForecastFragment extends Fragment implements LoaderManager.LoaderCa
                     return false;
                 }
             });
+
+
+            data.moveToPosition(0);
+            mWeatherId = data.getInt(COL_WEATHER_CONDITION_ID);
+            mHigh = data.getDouble(COL_WEATHER_MAX_TEMP);
+            mLow = data.getDouble(COL_WEATHER_MIN_TEMP);
+            isWatchDataLoaded = true;
+            updateWatchFace();
         }
-
     }
-
-
 
     @Override
     public void onDestroy() {
@@ -403,9 +451,9 @@ public class ForecastFragment extends Fragment implements LoaderManager.LoaderCa
         use to determine why they aren't seeing weather.
      */
     private void updateEmptyView() {
-        if ( mForecastAdapter.getItemCount() == 0 ) {
+        if (mForecastAdapter.getItemCount() == 0) {
             TextView tv = (TextView) getView().findViewById(R.id.recyclerview_forecast_empty);
-            if ( null != tv ) {
+            if (null != tv) {
                 // if cursor is empty, why? do we have an invalid location
                 int message = R.string.empty_forecast_list;
                 @SunshineSyncAdapter.LocationStatus int location = Utility.getLocationStatus(getActivity());
@@ -430,9 +478,34 @@ public class ForecastFragment extends Fragment implements LoaderManager.LoaderCa
     }
 
     @Override
+    public void onStart() {
+        super.onStart();
+        mGoogleApiClient.connect();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        mGoogleApiClient.disconnect();
+        Wearable.DataApi.removeListener(mGoogleApiClient, this);
+    }
+
+    @Override
     public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
         if (key.equals(getString(R.string.pref_location_status_key))) {
             updateEmptyView();
         }
+    }
+
+    /**
+     * A callback interface that all activities containing this fragment must
+     * implement. This mechanism allows activities to be notified of item
+     * selections.
+     */
+    public interface Callback {
+        /**
+         * DetailFragmentCallback for when an item has been selected.
+         */
+        void onItemSelected(Uri dateUri, ForecastAdapter.ForecastAdapterViewHolder vh);
     }
 }
